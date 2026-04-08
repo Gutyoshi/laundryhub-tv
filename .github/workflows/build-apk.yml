@@ -22,6 +22,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Generate signing keystore
+        run: |
+          keytool -genkeypair \
+            -alias laundryhub \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -keystore keystore.jks \
+            -storepass laundryhub2026 \
+            -keypass laundryhub2026 \
+            -dname "CN=LaundryHub, OU=Dev, O=LaundryHub, L=Itajai, ST=SC, C=BR"
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
