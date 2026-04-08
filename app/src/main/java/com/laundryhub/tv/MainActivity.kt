@@ -2,10 +2,9 @@ package com.laundryhub.tv
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.BroadcastReceiver
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -26,6 +25,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.TextView
 
@@ -35,6 +35,13 @@ class MainActivity : Activity() {
     private lateinit var offlineView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var retryRunnable: Runnable? = null
+
+    // Exit password mechanism
+    private val exitPassword = "1234"
+    private var backPressCount = 0
+    private var firstBackPressTime = 0L
+    private val backPressWindow = 3000L // 5 presses within 3 seconds
+    private val backPressRequired = 5
 
     private val displayUrl: String
         get() = BuildConfig.DISPLAY_URL
@@ -178,19 +185,78 @@ class MainActivity : Activity() {
         if (hasFocus) hideSystemUI()
     }
 
-    // Block back button and home key (kiosk)
+    // ========================================
+    // Key handling + exit password
+    // ========================================
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        return when (keyCode) {
-            KeyEvent.KEYCODE_BACK,
+        when (keyCode) {
+            KeyEvent.KEYCODE_BACK -> {
+                handleBackPress()
+                return true
+            }
             KeyEvent.KEYCODE_HOME,
             KeyEvent.KEYCODE_MENU,
-            KeyEvent.KEYCODE_APP_SWITCH -> true  // Block these keys
-            else -> super.onKeyDown(keyCode, event)
+            KeyEvent.KEYCODE_APP_SWITCH -> return true // Block
+            else -> return super.onKeyDown(keyCode, event)
         }
     }
 
     override fun onBackPressed() {
-        // Blocked - kiosk mode
+        // Blocked - handled in onKeyDown
+    }
+
+    private fun handleBackPress() {
+        val now = System.currentTimeMillis()
+
+        if (now - firstBackPressTime > backPressWindow) {
+            // Reset counter
+            backPressCount = 1
+            firstBackPressTime = now
+        } else {
+            backPressCount++
+        }
+
+        if (backPressCount >= backPressRequired) {
+            backPressCount = 0
+            showPasswordDialog()
+        }
+    }
+
+    private fun showPasswordDialog() {
+        val input = EditText(this).apply {
+            hint = "Senha"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                    android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            setPadding(50, 30, 50, 30)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Sair do modo display")
+            .setMessage("Digite a senha para sair:")
+            .setView(input)
+            .setPositiveButton("Sair") { _, _ ->
+                if (input.text.toString() == exitPassword) {
+                    exitKiosk()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun exitKiosk() {
+        // Stop watchdog service
+        val serviceIntent = Intent(this, WatchdogService::class.java)
+        stopService(serviceIntent)
+
+        // Save flag so watchdog doesn't restart
+        getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("exit_requested", true)
+            .apply()
+
+        // Close app
+        finishAffinity()
     }
 
     // ========================================
@@ -259,6 +325,12 @@ class MainActivity : Activity() {
         super.onResume()
         webView.onResume()
         hideSystemUI()
+
+        // Clear exit flag when app is opened again
+        getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("exit_requested", false)
+            .apply()
     }
 
     override fun onPause() {

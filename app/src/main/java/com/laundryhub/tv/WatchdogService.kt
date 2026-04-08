@@ -64,6 +64,16 @@ class WatchdogService : Service() {
     private fun startWatchdog() {
         handler.post(object : Runnable {
             override fun run() {
+                // Respect exit request
+                val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                    .getBoolean("exit_requested", false)
+
+                if (exitRequested) {
+                    Log.d("Watchdog", "Exit requested, stopping")
+                    stopSelf()
+                    return
+                }
+
                 if (!isAppInForeground()) {
                     Log.d("Watchdog", "App not in foreground, relaunching")
                     launchApp()
@@ -94,24 +104,33 @@ class WatchdogService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // If app is swiped away, schedule restart
-        val restartIntent = Intent(applicationContext, WatchdogService::class.java)
-        val pendingIntent = PendingIntent.getService(
-            applicationContext, 1, restartIntent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.set(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + 1000,
-            pendingIntent
-        )
+        val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            .getBoolean("exit_requested", false)
+
+        if (!exitRequested) {
+            // If app is swiped away, schedule restart
+            val restartIntent = Intent(applicationContext, WatchdogService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                applicationContext, 1, restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 1000,
+                pendingIntent
+            )
+        }
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         isRunning = false
-        start(applicationContext) // Restart yourself
+        val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            .getBoolean("exit_requested", false)
+        if (!exitRequested) {
+            start(applicationContext) // Restart yourself only if not exit
+        }
         super.onDestroy()
     }
 
