@@ -13,13 +13,21 @@ class LaundryHubApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        requestBatteryOptimizationExemption()
-        WatchdogService.start(this)
+        try {
+            requestBatteryOptimizationExemption()
+        } catch (e: Exception) {
+            Log.e("LaundryHubApp", "Battery exemption failed", e)
+        }
+        try {
+            WatchdogService.start(this)
+        } catch (e: Exception) {
+            Log.e("LaundryHubApp", "Watchdog start failed", e)
+        }
     }
 
     private fun requestBatteryOptimizationExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
             if (!pm.isIgnoringBatteryOptimizations(packageName)) {
                 try {
                     val intent = Intent(
@@ -30,7 +38,8 @@ class LaundryHubApp : Application() {
                     }
                     startActivity(intent)
                 } catch (e: Exception) {
-                    Log.e("LaundryHubApp", "Cannot request battery exemption", e)
+                    // Some TVs don't support this intent - that's OK
+                    Log.e("LaundryHubApp", "Battery optimization not supported", e)
                 }
             }
         }

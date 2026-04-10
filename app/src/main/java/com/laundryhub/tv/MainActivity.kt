@@ -58,17 +58,7 @@ class MainActivity : Activity() {
         // Layout
         val root = FrameLayout(this)
 
-        // WebView
-        webView = WebView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-        setupWebView()
-        root.addView(webView)
-
-        // Offline message (hidden by default)
+        // Offline message
         offlineView = TextView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -81,19 +71,37 @@ class MainActivity : Activity() {
             gravity = android.view.Gravity.CENTER
             visibility = View.GONE
         }
-        root.addView(offlineView)
 
-        setContentView(root)
+        // WebView (with crash protection)
+        try {
+            webView = WebView(this).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            setupWebView()
+            root.addView(webView)
+            root.addView(offlineView)
 
-        // Load or wait for connection
-        if (isOnline()) {
-            webView.loadUrl(displayUrl)
-        } else {
-            showOffline()
+            setContentView(root)
+
+            // Load or wait for connection
+            if (isOnline()) {
+                webView.loadUrl(displayUrl)
+            } else {
+                showOffline()
+            }
+
+            // Monitor connectivity changes
+            registerNetworkCallback()
+        } catch (e: Exception) {
+            // WebView not available on this device - show error
+            offlineView.text = "Erro: WebView não disponível.\nAtualize o Android System WebView na Play Store."
+            offlineView.visibility = View.VISIBLE
+            root.addView(offlineView)
+            setContentView(root)
         }
-
-        // Monitor connectivity changes
-        registerNetworkCallback()
     }
 
     @SuppressLint("SetJavaScriptEnabled")

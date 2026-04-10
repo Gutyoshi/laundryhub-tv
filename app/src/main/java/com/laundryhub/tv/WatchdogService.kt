@@ -22,35 +22,43 @@ class WatchdogService : Service() {
     private var isRunning = false
 
     companion object {
-        private const val CHECK_INTERVAL = 10_000L // 10 seconds
+        private const val CHECK_INTERVAL = 10_000L
         private const val NOTIFICATION_ID = 9999
         private const val CHANNEL_ID = "laundryhub_watchdog"
 
         fun start(context: Context) {
-            val intent = Intent(context, WatchdogService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, WatchdogService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("Watchdog", "Failed to start service", e)
             }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "LaundryHub Display",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                setShowBadge(false)
-                setSound(null, null)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "LaundryHub Display",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                }
+                val nm = getSystemService(NotificationManager::class.java)
+                nm.createNotificationChannel(channel)
             }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
+            startForeground(NOTIFICATION_ID, createNotification())
+        } catch (e: Exception) {
+            Log.e("Watchdog", "Failed to start foreground", e)
         }
-        startForeground(NOTIFICATION_ID, createNotification())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -58,25 +66,28 @@ class WatchdogService : Service() {
             isRunning = true
             startWatchdog()
         }
-        return START_STICKY // Android restarts this if killed
+        return START_STICKY
     }
 
     private fun startWatchdog() {
         handler.post(object : Runnable {
             override fun run() {
-                // Respect exit request
-                val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-                    .getBoolean("exit_requested", false)
+                try {
+                    val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                        .getBoolean("exit_requested", false)
 
-                if (exitRequested) {
-                    Log.d("Watchdog", "Exit requested, stopping")
-                    stopSelf()
-                    return
-                }
+                    if (exitRequested) {
+                        Log.d("Watchdog", "Exit requested, stopping")
+                        stopSelf()
+                        return
+                    }
 
-                if (!isAppInForeground()) {
-                    Log.d("Watchdog", "App not in foreground, relaunching")
-                    launchApp()
+                    if (!isAppInForeground()) {
+                        Log.d("Watchdog", "App not in foreground, relaunching")
+                        launchApp()
+                    }
+                } catch (e: Exception) {
+                    Log.e("Watchdog", "Watchdog check failed", e)
                 }
                 handler.postDelayed(this, CHECK_INTERVAL)
             }
@@ -85,10 +96,14 @@ class WatchdogService : Service() {
 
     @Suppress("DEPRECATION")
     private fun isAppInForeground(): Boolean {
-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val tasks = am.getRunningTasks(1)
-        if (tasks.isNullOrEmpty()) return false
-        return tasks[0].topActivity?.packageName == packageName
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val tasks = am.getRunningTasks(1)
+            if (tasks.isNullOrEmpty()) false
+            else tasks[0].topActivity?.packageName == packageName
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun launchApp() {
@@ -104,32 +119,43 @@ class WatchdogService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .getBoolean("exit_requested", false)
+        try {
+            val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                .getBoolean("exit_requested", false)
 
-        if (!exitRequested) {
-            // If app is swiped away, schedule restart
-            val restartIntent = Intent(applicationContext, WatchdogService::class.java)
-            val pendingIntent = PendingIntent.getService(
-                applicationContext, 1, restartIntent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            alarmManager.set(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 1000,
-                pendingIntent
-            )
+            if (!exitRequested) {
+                val restartIntent = Intent(applicationContext, WatchdogService::class.java)
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_ONE_SHOT
+                }
+                val pendingIntent = PendingIntent.getService(
+                    applicationContext, 1, restartIntent, flags
+                )
+                val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                alarmManager.set(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + 1000,
+                    pendingIntent
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("Watchdog", "onTaskRemoved failed", e)
         }
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         isRunning = false
-        val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .getBoolean("exit_requested", false)
-        if (!exitRequested) {
-            start(applicationContext) // Restart yourself only if not exit
+        try {
+            val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                .getBoolean("exit_requested", false)
+            if (!exitRequested) {
+                start(applicationContext)
+            }
+        } catch (e: Exception) {
+            Log.e("Watchdog", "onDestroy restart failed", e)
         }
         super.onDestroy()
     }
