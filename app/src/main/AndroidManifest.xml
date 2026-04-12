@@ -6,8 +6,6 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
-        android:maxSdkVersion="35" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- TV compatibility -->
@@ -15,14 +13,12 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:name=".LaundryHubApp"
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="LaundryHub"
         android:theme="@style/Theme.LaundryHubTV"
         android:usesCleartextTraffic="true"
-        android:hardwareAccelerated="true"
-        android:persistent="true">
+        android:hardwareAccelerated="true">
 
         <!-- Main Activity -->
         <activity
@@ -44,7 +40,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Boot Receiver - multiple boot signals for all TV brands -->
+        <!-- Boot Receiver -->
         <receiver
             android:name=".BootReceiver"
             android:exported="true"
@@ -59,7 +55,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Watchdog Service - keeps app alive and relaunches if killed -->
+        <!-- Watchdog Service -->
         <service
             android:name=".WatchdogService"
             android:exported="false"

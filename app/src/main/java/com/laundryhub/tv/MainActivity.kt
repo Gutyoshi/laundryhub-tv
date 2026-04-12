@@ -9,10 +9,14 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -31,16 +35,16 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
 
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
     private lateinit var offlineView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var retryRunnable: Runnable? = null
 
-    // Exit password mechanism
+    // Exit password
     private val exitPassword = "1234"
     private var backPressCount = 0
     private var firstBackPressTime = 0L
-    private val backPressWindow = 3000L // 5 presses within 3 seconds
+    private val backPressWindow = 3000L
     private val backPressRequired = 5
 
     private val displayUrl: String
@@ -52,13 +56,13 @@ class MainActivity : Activity() {
         // Keep screen always on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Fullscreen immersive
+        // Fullscreen
         hideSystemUI()
 
         // Layout
         val root = FrameLayout(this)
 
-        // Offline message
+        // Offline/error message
         offlineView = TextView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -72,7 +76,6 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
 
-        // WebView (with crash protection)
         try {
             webView = WebView(this).apply {
                 layoutParams = FrameLayout.LayoutParams(
@@ -83,64 +86,78 @@ class MainActivity : Activity() {
             setupWebView()
             root.addView(webView)
             root.addView(offlineView)
-
             setContentView(root)
 
-            // Load or wait for connection
             if (isOnline()) {
-                webView.loadUrl(displayUrl)
+                webView?.loadUrl(displayUrl)
             } else {
                 showOffline()
             }
 
-            // Monitor connectivity changes
             registerNetworkCallback()
         } catch (e: Exception) {
-            // WebView not available on this device - show error
-            offlineView.text = "Erro: WebView não disponível.\nAtualize o Android System WebView na Play Store."
+            Log.e("MainActivity", "WebView init failed", e)
+            offlineView.text = "Erro: WebView não disponível.\nAtualize o Android System WebView."
             offlineView.visibility = View.VISIBLE
             root.addView(offlineView)
             setContentView(root)
+        }
+
+        // Start watchdog AFTER UI is ready, with delay for slow TVs
+        handler.postDelayed({
+            WatchdogService.start(this)
+        }, 3000)
+
+        // Battery optimization (from Activity, not Application)
+        requestBatteryExemption()
+    }
+
+    private fun requestBatteryExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+                if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                    val intent = Intent(
+                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:$packageName")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    startActivity(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Battery exemption not supported", e)
+            }
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        webView.settings.apply {
-            // JavaScript & web features
+        webView?.settings?.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            mediaPlaybackRequiresUserGesture = false  // Autoplay audio/video
+            mediaPlaybackRequiresUserGesture = false
 
-            // Cache - stores assets locally
             cacheMode = WebSettings.LOAD_DEFAULT
             setSupportMultipleWindows(false)
 
-            // Performance
+            @Suppress("DEPRECATION")
             setRenderPriority(WebSettings.RenderPriority.HIGH)
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = false
             }
 
-            // Allow mixed content (http resources on https page)
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-
-            // Viewport
             useWideViewPort = true
             loadWithOverviewMode = true
         }
 
-        // Hardware acceleration
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        webView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-        webView.webViewClient = object : WebViewClient() {
+        webView?.webViewClient = object : WebViewClient() {
             override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
+                view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
-                // Only handle main frame errors
                 if (request?.isForMainFrame == true) {
                     showOffline()
                     scheduleRetry()
@@ -152,20 +169,18 @@ class MainActivity : Activity() {
                 cancelRetry()
             }
 
-            // Stay inside the app - don't open external browser
             override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
+                view: WebView?, request: WebResourceRequest?
             ): Boolean = false
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
+        webView?.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean = true
         }
     }
 
     // ========================================
-    // Fullscreen / Kiosk mode
+    // Fullscreen
     // ========================================
 
     private fun hideSystemUI() {
@@ -198,33 +213,29 @@ class MainActivity : Activity() {
     // ========================================
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        when (keyCode) {
+        return when (keyCode) {
             KeyEvent.KEYCODE_BACK -> {
                 handleBackPress()
-                return true
+                true
             }
             KeyEvent.KEYCODE_HOME,
             KeyEvent.KEYCODE_MENU,
-            KeyEvent.KEYCODE_APP_SWITCH -> return true // Block
-            else -> return super.onKeyDown(keyCode, event)
+            KeyEvent.KEYCODE_APP_SWITCH -> true
+            else -> super.onKeyDown(keyCode, event)
         }
     }
 
-    override fun onBackPressed() {
-        // Blocked - handled in onKeyDown
-    }
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() { }
 
     private fun handleBackPress() {
         val now = System.currentTimeMillis()
-
         if (now - firstBackPressTime > backPressWindow) {
-            // Reset counter
             backPressCount = 1
             firstBackPressTime = now
         } else {
             backPressCount++
         }
-
         if (backPressCount >= backPressRequired) {
             backPressCount = 0
             showPasswordDialog()
@@ -253,51 +264,48 @@ class MainActivity : Activity() {
     }
 
     private fun exitKiosk() {
-        // Stop watchdog service
-        val serviceIntent = Intent(this, WatchdogService::class.java)
-        stopService(serviceIntent)
-
-        // Save flag so watchdog doesn't restart
+        stopService(Intent(this, WatchdogService::class.java))
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean("exit_requested", true)
-            .apply()
-
-        // Close app
+            .edit().putBoolean("exit_requested", true).apply()
         finishAffinity()
     }
 
     // ========================================
-    // Connectivity handling
+    // Connectivity
     // ========================================
 
     private fun isOnline(): Boolean {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun registerNetworkCallback() {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
 
-        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                handler.post {
-                    webView.loadUrl(displayUrl)
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    handler.post { webView?.loadUrl(displayUrl) }
                 }
-            }
-
-            override fun onLost(network: Network) {
-                handler.post {
-                    showOffline()
-                    scheduleRetry()
+                override fun onLost(network: Network) {
+                    handler.post {
+                        showOffline()
+                        scheduleRetry()
+                    }
                 }
-            }
-        })
+            })
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Network callback failed", e)
+        }
     }
 
     private fun showOffline() {
@@ -312,12 +320,12 @@ class MainActivity : Activity() {
         cancelRetry()
         retryRunnable = Runnable {
             if (isOnline()) {
-                webView.loadUrl(displayUrl)
+                webView?.loadUrl(displayUrl)
             } else {
                 scheduleRetry()
             }
         }
-        handler.postDelayed(retryRunnable!!, 10_000) // Retry every 10s
+        handler.postDelayed(retryRunnable!!, 10_000)
     }
 
     private fun cancelRetry() {
@@ -331,23 +339,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        webView.onResume()
+        webView?.onResume()
         hideSystemUI()
-
-        // Clear exit flag when app is opened again
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean("exit_requested", false)
-            .apply()
+            .edit().putBoolean("exit_requested", false).apply()
     }
 
     override fun onPause() {
-        webView.onPause()
+        webView?.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
-        webView.destroy()
+        webView?.destroy()
         cancelRetry()
         super.onDestroy()
     }

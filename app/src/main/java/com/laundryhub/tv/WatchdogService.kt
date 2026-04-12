@@ -35,7 +35,12 @@ class WatchdogService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                Log.e("Watchdog", "Failed to start service", e)
+                // Fallback: start as regular service
+                try {
+                    context.startService(Intent(context, WatchdogService::class.java))
+                } catch (e2: Exception) {
+                    Log.e("Watchdog", "Failed to start service", e2)
+                }
             }
         }
     }
@@ -45,19 +50,18 @@ class WatchdogService : Service() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    "LaundryHub Display",
+                    CHANNEL_ID, "LaundryHub Display",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
                     setShowBadge(false)
                     setSound(null, null)
                 }
-                val nm = getSystemService(NotificationManager::class.java)
-                nm.createNotificationChannel(channel)
+                getSystemService(NotificationManager::class.java)
+                    ?.createNotificationChannel(channel)
             }
             startForeground(NOTIFICATION_ID, createNotification())
         } catch (e: Exception) {
-            Log.e("Watchdog", "Failed to start foreground", e)
+            Log.e("Watchdog", "Foreground failed, running as background", e)
         }
     }
 
@@ -73,21 +77,20 @@ class WatchdogService : Service() {
         handler.post(object : Runnable {
             override fun run() {
                 try {
-                    val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-                        .getBoolean("exit_requested", false)
-
-                    if (exitRequested) {
+                    val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                    if (prefs.getBoolean("exit_requested", false)) {
                         Log.d("Watchdog", "Exit requested, stopping")
+                        isRunning = false
                         stopSelf()
                         return
                     }
 
                     if (!isAppInForeground()) {
-                        Log.d("Watchdog", "App not in foreground, relaunching")
+                        Log.d("Watchdog", "Relaunching app")
                         launchApp()
                     }
                 } catch (e: Exception) {
-                    Log.e("Watchdog", "Watchdog check failed", e)
+                    Log.e("Watchdog", "Check failed", e)
                 }
                 handler.postDelayed(this, CHECK_INTERVAL)
             }
@@ -109,35 +112,30 @@ class WatchdogService : Service() {
     private fun launchApp() {
         try {
             val intent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             startActivity(intent)
         } catch (e: Exception) {
-            Log.e("Watchdog", "Failed to relaunch", e)
+            Log.e("Watchdog", "Relaunch failed", e)
         }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         try {
-            val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            val exit = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
                 .getBoolean("exit_requested", false)
-
-            if (!exitRequested) {
-                val restartIntent = Intent(applicationContext, WatchdogService::class.java)
-                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!exit) {
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-                } else {
-                    PendingIntent.FLAG_ONE_SHOT
-                }
-                val pendingIntent = PendingIntent.getService(
-                    applicationContext, 1, restartIntent, flags
+                else PendingIntent.FLAG_ONE_SHOT
+
+                val pi = PendingIntent.getService(
+                    applicationContext, 1,
+                    Intent(applicationContext, WatchdogService::class.java), flags
                 )
-                val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                alarmManager.set(
+                (getSystemService(Context.ALARM_SERVICE) as? AlarmManager)?.set(
                     AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                    SystemClock.elapsedRealtime() + 1000,
-                    pendingIntent
+                    SystemClock.elapsedRealtime() + 1000, pi
                 )
             }
         } catch (e: Exception) {
@@ -149,13 +147,11 @@ class WatchdogService : Service() {
     override fun onDestroy() {
         isRunning = false
         try {
-            val exitRequested = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            val exit = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
                 .getBoolean("exit_requested", false)
-            if (!exitRequested) {
-                start(applicationContext)
-            }
+            if (!exit) start(applicationContext)
         } catch (e: Exception) {
-            Log.e("Watchdog", "onDestroy restart failed", e)
+            Log.e("Watchdog", "Restart failed", e)
         }
         super.onDestroy()
     }
@@ -169,9 +165,8 @@ class WatchdogService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-
         return builder
-            .setContentTitle("LaundryHub Display Ativo")
+            .setContentTitle("LaundryHub Display")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .build()
