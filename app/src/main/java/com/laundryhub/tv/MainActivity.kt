@@ -9,13 +9,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -108,25 +105,13 @@ class MainActivity : Activity() {
             WatchdogService.start(this)
         }, 3000)
 
-        // Battery optimization (from Activity, not Application)
-        requestBatteryExemption()
+        // Battery optimization - silent, no popup
+        silentBatteryExemption()
     }
 
-    private fun requestBatteryExemption() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-                if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                    val intent = Intent(
-                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                        Uri.parse("package:$packageName")
-                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                    startActivity(intent)
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Battery exemption not supported", e)
-            }
-        }
+    private fun silentBatteryExemption() {
+        // No popup - TV doesn't have battery anyway
+        // The watchdog + START_STICKY is enough to keep alive
     }
 
     @SuppressLint("SetJavaScriptEnabled")
