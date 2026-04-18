@@ -107,11 +107,55 @@ class MainActivity : Activity() {
 
         // Battery optimization - silent, no popup
         silentBatteryExemption()
+
+        // Self-heal: if launcher mode is enabled but accessibility isn't, force enable it
+        ensureAccessibilityEnabled()
     }
 
     private fun silentBatteryExemption() {
         // No popup - TV doesn't have battery anyway
-        // The watchdog + START_STICKY is enough to keep alive
+    }
+
+    /**
+     * Auto-heals the accessibility service activation.
+     * Requires WRITE_SECURE_SETTINGS permission granted via ADB:
+     * adb shell pm grant com.laundryhub.tv android.permission.WRITE_SECURE_SETTINGS
+     */
+    private fun ensureAccessibilityEnabled() {
+        try {
+            val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("launcher_enabled", false)) return
+
+            val serviceName = "$packageName/.KioskAccessibilityService"
+            val fullServiceName = "$packageName/com.laundryhub.tv.KioskAccessibilityService"
+            val current = android.provider.Settings.Secure.getString(
+                contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: ""
+
+            if (current.contains(serviceName) || current.contains(fullServiceName)) {
+                Log.d("MainActivity", "Accessibility already enabled")
+                return
+            }
+
+            // Not enabled - try to enable via WRITE_SECURE_SETTINGS
+            val newValue = if (current.isEmpty()) fullServiceName else "$current:$fullServiceName"
+            android.provider.Settings.Secure.putString(
+                contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                newValue
+            )
+            android.provider.Settings.Secure.putInt(
+                contentResolver,
+                android.provider.Settings.Secure.ACCESSIBILITY_ENABLED,
+                1
+            )
+            Log.d("MainActivity", "Accessibility service auto-enabled")
+        } catch (e: SecurityException) {
+            Log.w("MainActivity", "WRITE_SECURE_SETTINGS not granted - auto-enable disabled")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Accessibility auto-enable failed", e)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
