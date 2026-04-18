@@ -275,62 +275,79 @@ class MainActivity : Activity() {
     }
 
     private fun showExitOptionsDialog() {
+        val isLauncherEnabled = isLauncherModeEnabled()
+        val launcherStatus = if (isLauncherEnabled) "ATIVADO" else "DESATIVADO"
+
         val options = arrayOf(
-            "Continuar no modo display",
-            "Sair temporariamente (volta em 10s)",
-            "Desativar modo kiosk completamente"
+            "Iniciar com a TV: $launcherStatus  (tocar para alternar)",
+            "Sair do app",
+            "Cancelar"
         )
 
         AlertDialog.Builder(this)
-            .setTitle("O que deseja fazer?")
+            .setTitle("Modo Kiosk")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> { /* cancel, do nothing */ }
-                    1 -> exitTemporary()
-                    2 -> disableKioskMode()
+                    0 -> toggleLauncherMode(isLauncherEnabled)
+                    1 -> finishAffinity()
+                    2 -> { /* cancel */ }
                 }
             }
             .setCancelable(true)
             .show()
     }
 
-    private fun exitTemporary() {
-        // Close the app but watchdog stays active and reopens in 10s
-        finishAffinity()
+    private fun isLauncherModeEnabled(): Boolean {
+        return try {
+            val component = android.content.ComponentName(
+                packageName, "com.laundryhub.tv.LauncherAlias"
+            )
+            val state = packageManager.getComponentEnabledSetting(component)
+            state != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        } catch (e: Exception) {
+            true
+        }
     }
 
-    private fun disableKioskMode() {
-        // Stop watchdog permanently
-        stopService(Intent(this, WatchdogService::class.java))
-        getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .edit().putBoolean("exit_requested", true).apply()
-
-        // Show confirmation with instructions
-        AlertDialog.Builder(this)
-            .setTitle("Modo kiosk desativado")
-            .setMessage(
-                "O app não vai mais reabrir sozinho.\n\n" +
-                "Para trocar o launcher padrão da TV, vá em:\n" +
-                "Configurações > Apps > Apps padrão > Tela inicial\n\n" +
-                "Depois pode desinstalar o app normalmente."
+    private fun toggleLauncherMode(currentlyEnabled: Boolean) {
+        try {
+            val component = android.content.ComponentName(
+                packageName, "com.laundryhub.tv.LauncherAlias"
             )
-            .setPositiveButton("Abrir configurações") { _, _ ->
-                try {
-                    startActivity(Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
-                } catch (e: Exception) {
-                    try {
-                        startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS))
-                    } catch (e2: Exception) {
-                        Log.e("MainActivity", "No settings activity", e2)
-                    }
-                }
-                finishAffinity()
+            val newState = if (currentlyEnabled) {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            } else {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
             }
-            .setNegativeButton("Sair") { _, _ ->
-                finishAffinity()
+            packageManager.setComponentEnabledSetting(
+                component,
+                newState,
+                android.content.pm.PackageManager.DONT_KILL_APP
+            )
+
+            val message = if (currentlyEnabled) {
+                "Iniciar automático DESATIVADO.\n\n" +
+                "O app não vai mais abrir quando ligar a TV.\n" +
+                "Agora o launcher original da TV volta ao normal."
+            } else {
+                "Iniciar automático ATIVADO.\n\n" +
+                "O app vai abrir automaticamente quando ligar a TV.\n" +
+                "Pode ser que a TV pergunte qual launcher usar — escolha LaundryHub e 'Sempre'."
             }
-            .setCancelable(false)
-            .show()
+
+            AlertDialog.Builder(this)
+                .setTitle(if (currentlyEnabled) "Desativado" else "Ativado")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Toggle failed", e)
+            AlertDialog.Builder(this)
+                .setTitle("Erro")
+                .setMessage("Não foi possível alterar: ${e.message}")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     // ========================================
