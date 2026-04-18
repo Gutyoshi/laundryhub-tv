@@ -246,26 +246,91 @@ class MainActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or
                     android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
             setPadding(50, 30, 50, 30)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Sair do modo display")
-            .setMessage("Digite a senha para sair:")
+            .setMessage("Digite a senha:")
             .setView(input)
-            .setPositiveButton("Sair") { _, _ ->
+            .setPositiveButton("OK") { _, _ ->
                 if (input.text.toString() == exitPassword) {
-                    exitKiosk()
+                    showExitOptionsDialog()
                 }
             }
             .setNegativeButton("Cancelar", null)
+            .create()
+
+        // Enter key confirms automatically
+        input.setOnEditorActionListener { _, _, _ ->
+            if (input.text.toString() == exitPassword) {
+                dialog.dismiss()
+                showExitOptionsDialog()
+            }
+            true
+        }
+
+        dialog.show()
+        input.requestFocus()
+    }
+
+    private fun showExitOptionsDialog() {
+        val options = arrayOf(
+            "Continuar no modo display",
+            "Sair temporariamente (volta em 10s)",
+            "Desativar modo kiosk completamente"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("O que deseja fazer?")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> { /* cancel, do nothing */ }
+                    1 -> exitTemporary()
+                    2 -> disableKioskMode()
+                }
+            }
+            .setCancelable(true)
             .show()
     }
 
-    private fun exitKiosk() {
+    private fun exitTemporary() {
+        // Close the app but watchdog stays active and reopens in 10s
+        finishAffinity()
+    }
+
+    private fun disableKioskMode() {
+        // Stop watchdog permanently
         stopService(Intent(this, WatchdogService::class.java))
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
             .edit().putBoolean("exit_requested", true).apply()
-        finishAffinity()
+
+        // Show confirmation with instructions
+        AlertDialog.Builder(this)
+            .setTitle("Modo kiosk desativado")
+            .setMessage(
+                "O app não vai mais reabrir sozinho.\n\n" +
+                "Para trocar o launcher padrão da TV, vá em:\n" +
+                "Configurações > Apps > Apps padrão > Tela inicial\n\n" +
+                "Depois pode desinstalar o app normalmente."
+            )
+            .setPositiveButton("Abrir configurações") { _, _ ->
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
+                } catch (e: Exception) {
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS))
+                    } catch (e2: Exception) {
+                        Log.e("MainActivity", "No settings activity", e2)
+                    }
+                }
+                finishAffinity()
+            }
+            .setNegativeButton("Sair") { _, _ ->
+                finishAffinity()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     // ========================================
