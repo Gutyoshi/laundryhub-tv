@@ -12,17 +12,16 @@ class KioskAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastLaunchTime = 0L
-    private val launchCooldown = 1500L // Avoid rapid relaunches
+    private val launchCooldown = 3000L // 3s cooldown to avoid loops
 
-    // Packages we allow to stay on top (system UI, our own app, settings when user is configuring)
-    private val allowedPackages = setOf(
-        "com.laundryhub.tv",
-        "android",
-        "com.android.systemui",
-        "com.android.settings",
-        "com.android.tv.settings",
-        "com.android.packageinstaller",
-        "com.google.android.packageinstaller"
+    // Known launcher packages - ONLY relaunch when these appear
+    private val launcherKeywords = listOf(
+        "launcher",
+        "zeasn",
+        "toptech",
+        "tvlauncher",
+        "home",
+        "homescreen"
     )
 
     override fun onServiceConnected() {
@@ -34,30 +33,28 @@ class KioskAccessibilityService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         try {
-            // Check if kiosk mode is currently enabled
             val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("launcher_enabled", false)) return
-
-            // Check if user explicitly requested exit
             if (prefs.getBoolean("exit_requested", false)) return
 
-            // Check if watchdog is paused
             val pausedUntil = prefs.getLong("paused_until", 0L)
             if (System.currentTimeMillis() < pausedUntil) return
 
-            val pkg = event.packageName?.toString() ?: return
+            val pkg = event.packageName?.toString()?.lowercase() ?: return
 
-            // If a foreign package is foreground, bring our app back
-            if (pkg !in allowedPackages) {
-                val now = System.currentTimeMillis()
-                if (now - lastLaunchTime < launchCooldown) return
-                lastLaunchTime = now
+            // Never react to our own app
+            if (pkg == packageName.lowercase()) return
 
-                Log.d("KioskA11y", "Foreign pkg detected: $pkg, relaunching app")
-                handler.postDelayed({
-                    launchMainActivity()
-                }, 300)
-            }
+            // Only relaunch if detected package LOOKS like a launcher
+            val isLauncher = launcherKeywords.any { pkg.contains(it) }
+            if (!isLauncher) return
+
+            val now = System.currentTimeMillis()
+            if (now - lastLaunchTime < launchCooldown) return
+            lastLaunchTime = now
+
+            Log.d("KioskA11y", "Launcher detected: $pkg, relaunching app")
+            handler.postDelayed({ launchMainActivity() }, 500)
         } catch (e: Exception) {
             Log.e("KioskA11y", "Error in event handler", e)
         }
