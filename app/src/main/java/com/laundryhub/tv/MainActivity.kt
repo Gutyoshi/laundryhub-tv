@@ -275,13 +275,18 @@ class MainActivity : Activity() {
     }
 
     private fun showExitOptionsDialog() {
-        val isLauncherEnabled = isLauncherModeEnabled()
-        val launcherStatus = if (isLauncherEnabled) "ATIVADO" else "DESATIVADO"
+        val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+        val launcherOn = prefs.getBoolean("launcher_enabled", false)
+        val a11yActive = isAccessibilityServiceEnabled()
+        val status = when {
+            launcherOn && a11yActive -> "ATIVADO"
+            launcherOn && !a11yActive -> "ATIVADO (requer configuração)"
+            else -> "DESATIVADO"
+        }
 
         val options = arrayOf(
-            "Iniciar com a TV: $launcherStatus  (tocar para alternar)",
-            "Sair e pausar watchdog por 5 minutos",
-            "Sair do app (watchdog volta em 30s)",
+            "Iniciar com a TV: $status  (tocar para alternar)",
+            "Sair do app (definitivo)",
             "Cancelar"
         )
 
@@ -289,107 +294,89 @@ class MainActivity : Activity() {
             .setTitle("Modo Kiosk")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> toggleLauncherMode(isLauncherEnabled)
-                    1 -> pauseWatchdogAndExit(5)
-                    2 -> finishAffinity()
-                    3 -> { /* cancel */ }
+                    0 -> toggleLauncherMode(launcherOn)
+                    1 -> exitPermanently()
+                    2 -> { /* cancel */ }
                 }
             }
             .setCancelable(true)
             .show()
     }
 
-    private fun pauseWatchdogAndExit(minutes: Int) {
-        val pausedUntil = System.currentTimeMillis() + (minutes * 60_000L)
+    private fun exitPermanently() {
+        // Stop watchdog and mark as exited - won't relaunch automatically
+        stopService(Intent(this, WatchdogService::class.java))
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
             .edit()
-            .putLong("paused_until", pausedUntil)
+            .putBoolean("exit_requested", true)
+            .putLong("paused_until", 0L)
             .apply()
         finishAffinity()
     }
 
-    private fun isLauncherModeEnabled(): Boolean {
+    private fun isAccessibilityServiceEnabled(): Boolean {
         return try {
-            val component = android.content.ComponentName(
-                packageName, "com.laundryhub.tv.LauncherAlias"
-            )
-            val state = packageManager.getComponentEnabledSetting(component)
-            state != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            val enabledServices = android.provider.Settings.Secure.getString(
+                contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            enabledServices.contains("${packageName}/.KioskAccessibilityService") ||
+                enabledServices.contains("$packageName/com.laundryhub.tv.KioskAccessibilityService")
         } catch (e: Exception) {
-            true
+            false
         }
     }
 
     private fun toggleLauncherMode(currentlyEnabled: Boolean) {
-        try {
-            val component = android.content.ComponentName(
-                packageName, "com.laundryhub.tv.LauncherAlias"
-            )
-            val newState = if (currentlyEnabled) {
-                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-            } else {
-                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-            }
-            packageManager.setComponentEnabledSetting(
-                component,
-                newState,
-                android.content.pm.PackageManager.DONT_KILL_APP
-            )
+        val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
 
-            // Clear "Always use" preference when disabling
-            if (currentlyEnabled) {
-                try {
-                    packageManager.clearPackagePreferredActivities(packageName)
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Clear preferences failed", e)
-                }
-            }
+        if (currentlyEnabled) {
+            // DISABLE: just flip flag, accessibility service stops forcing
+            prefs.edit().putBoolean("launcher_enabled", false).apply()
 
-            if (currentlyEnabled) {
-                // Disabling - stop watchdog and close app so launcher can change
-                stopService(Intent(this, WatchdogService::class.java))
-                getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-                    .edit().putBoolean("exit_requested", true).apply()
+            AlertDialog.Builder(this)
+                .setTitle("Iniciar automático DESATIVADO")
+                .setMessage(
+                    "O app não vai mais abrir quando ligar a TV.\n\n" +
+                    "A TV vai voltar ao normal — só o launcher original aparece."
+                )
+                .setPositiveButton("OK", null)
+                .show()
+        } else {
+            // ENABLE: set flag + check if accessibility service is active
+            prefs.edit().putBoolean("launcher_enabled", true).apply()
 
-                AlertDialog.Builder(this)
-                    .setTitle("Iniciar automático DESATIVADO")
-                    .setMessage(
-                        "O app vai fechar agora e não vai mais abrir quando ligar a TV.\n\n" +
-                        "Se a TV ainda abrir o app após reiniciar, vá em:\n" +
-                        "Configurações > Apps > Apps padrão > Tela inicial\n" +
-                        "e escolha o launcher original da TV."
-                    )
-                    .setPositiveButton("Fechar app") { _, _ ->
-                        finishAffinity()
-                    }
-                    .setNeutralButton("Abrir configurações") { _, _ ->
-                        try {
-                            startActivity(Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "Home settings not available", e)
-                        }
-                        finishAffinity()
-                    }
-                    .setCancelable(false)
-                    .show()
-            } else {
+            if (isAccessibilityServiceEnabled()) {
+                // Already configured
                 AlertDialog.Builder(this)
                     .setTitle("Iniciar automático ATIVADO")
                     .setMessage(
-                        "O app vai abrir automaticamente quando ligar a TV.\n\n" +
-                        "Na próxima vez que ligar, pode ser que a TV pergunte qual launcher usar — " +
-                        "escolha LaundryHub e marque 'Sempre'."
+                        "Pronto! O app vai abrir automaticamente quando ligar a TV."
                     )
                     .setPositiveButton("OK", null)
                     .show()
+            } else {
+                // Needs to enable accessibility service
+                AlertDialog.Builder(this)
+                    .setTitle("Configuração necessária")
+                    .setMessage(
+                        "Para o app abrir automaticamente quando a TV ligar, " +
+                        "habilite o serviço de acessibilidade:\n\n" +
+                        "1. Toque em 'Abrir configurações'\n" +
+                        "2. Encontre 'LaundryHub Kiosk' na lista\n" +
+                        "3. Ative o serviço\n" +
+                        "4. Volte ao app"
+                    )
+                    .setPositiveButton("Abrir configurações") { _, _ ->
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Accessibility settings not available", e)
+                        }
+                    }
+                    .setNegativeButton("Depois", null)
+                    .show()
             }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Toggle failed", e)
-            AlertDialog.Builder(this)
-                .setTitle("Erro")
-                .setMessage("Não foi possível alterar: ${e.message}")
-                .setPositiveButton("OK", null)
-                .show()
         }
     }
 

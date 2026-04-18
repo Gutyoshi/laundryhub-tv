@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LaundryHub</string>
+    <string name="accessibility_description">Permite que o LaundryHub abra automaticamente quando a TV ligar. Ative este serviço para ativar o modo launcher.</string>
+</resources>

@@ -22,7 +22,7 @@ class WatchdogService : Service() {
     private var isRunning = false
 
     companion object {
-        private const val CHECK_INTERVAL = 30_000L
+        private const val CHECK_INTERVAL = 300_000L // 5 minutes
         private const val NOTIFICATION_ID = 9999
         private const val CHANNEL_ID = "laundryhub_watchdog"
 
