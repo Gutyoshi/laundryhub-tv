@@ -40,6 +40,9 @@ class KioskAccessibilityService : AccessibilityService() {
             val pausedUntil = prefs.getLong("paused_until", 0L)
             if (System.currentTimeMillis() < pausedUntil) return
 
+            // If our app is already in foreground, don't do anything
+            if (MainActivity.isInForeground) return
+
             val pkg = event.packageName?.toString()?.lowercase() ?: return
 
             // Never react to our own app
@@ -54,7 +57,12 @@ class KioskAccessibilityService : AccessibilityService() {
             lastLaunchTime = now
 
             Log.d("KioskA11y", "Launcher detected: $pkg, relaunching app")
-            handler.postDelayed({ launchMainActivity() }, 500)
+            handler.postDelayed({
+                // Double-check before actually launching
+                if (!MainActivity.isInForeground) {
+                    launchMainActivity()
+                }
+            }, 500)
         } catch (e: Exception) {
             Log.e("KioskA11y", "Error in event handler", e)
         }

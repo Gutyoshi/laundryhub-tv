@@ -32,6 +32,11 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
 
+    companion object {
+        @Volatile
+        var isInForeground: Boolean = false
+    }
+
     private var webView: WebView? = null
     private lateinit var offlineView: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -449,6 +454,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        isInForeground = true
         webView?.onResume()
         hideSystemUI()
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
@@ -456,6 +462,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        isInForeground = false
         webView?.onPause()
         super.onPause()
     }
