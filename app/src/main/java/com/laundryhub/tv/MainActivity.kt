@@ -325,21 +325,53 @@ class MainActivity : Activity() {
                 android.content.pm.PackageManager.DONT_KILL_APP
             )
 
-            val message = if (currentlyEnabled) {
-                "Iniciar automático DESATIVADO.\n\n" +
-                "O app não vai mais abrir quando ligar a TV.\n" +
-                "Agora o launcher original da TV volta ao normal."
-            } else {
-                "Iniciar automático ATIVADO.\n\n" +
-                "O app vai abrir automaticamente quando ligar a TV.\n" +
-                "Pode ser que a TV pergunte qual launcher usar — escolha LaundryHub e 'Sempre'."
+            // Clear "Always use" preference when disabling
+            if (currentlyEnabled) {
+                try {
+                    packageManager.clearPackagePreferredActivities(packageName)
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Clear preferences failed", e)
+                }
             }
 
-            AlertDialog.Builder(this)
-                .setTitle(if (currentlyEnabled) "Desativado" else "Ativado")
-                .setMessage(message)
-                .setPositiveButton("OK", null)
-                .show()
+            if (currentlyEnabled) {
+                // Disabling - stop watchdog and close app so launcher can change
+                stopService(Intent(this, WatchdogService::class.java))
+                getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+                    .edit().putBoolean("exit_requested", true).apply()
+
+                AlertDialog.Builder(this)
+                    .setTitle("Iniciar automático DESATIVADO")
+                    .setMessage(
+                        "O app vai fechar agora e não vai mais abrir quando ligar a TV.\n\n" +
+                        "Se a TV ainda abrir o app após reiniciar, vá em:\n" +
+                        "Configurações > Apps > Apps padrão > Tela inicial\n" +
+                        "e escolha o launcher original da TV."
+                    )
+                    .setPositiveButton("Fechar app") { _, _ ->
+                        finishAffinity()
+                    }
+                    .setNeutralButton("Abrir configurações") { _, _ ->
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Home settings not available", e)
+                        }
+                        finishAffinity()
+                    }
+                    .setCancelable(false)
+                    .show()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("Iniciar automático ATIVADO")
+                    .setMessage(
+                        "O app vai abrir automaticamente quando ligar a TV.\n\n" +
+                        "Na próxima vez que ligar, pode ser que a TV pergunte qual launcher usar — " +
+                        "escolha LaundryHub e marque 'Sempre'."
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Toggle failed", e)
             AlertDialog.Builder(this)
