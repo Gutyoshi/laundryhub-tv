@@ -169,13 +169,24 @@ class MainActivity : Activity() {
     // ========================================
 
     private fun hideSystemUI() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let {
-                it.hide(WindowInsets.Type.systemBars())
-                it.systemBarsBehavior =
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Try modern API first, fallback to legacy if it fails
+        // (some custom Android builds return null insetsController)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val controller = window.insetsController
+                if (controller != null) {
+                    controller.hide(WindowInsets.Type.systemBars())
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    return
+                }
             }
-        } else {
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Modern hideSystemUI failed, using fallback", e)
+        }
+
+        // Legacy fallback - works on all Android versions
+        try {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -185,6 +196,8 @@ class MainActivity : Activity() {
                     or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                     or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 )
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Legacy hideSystemUI failed", e)
         }
     }
 
