@@ -21,9 +21,6 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action in bootActions) {
             Log.d("BootReceiver", "Boot signal received: ${intent.action}")
 
-            // Start watchdog service
-            WatchdogService.start(context)
-
             // Delay launch 3s - TVs need time to finish booting
             Handler(Looper.getMainLooper()).postDelayed({
                 launchApp(context)
