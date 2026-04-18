@@ -105,11 +105,6 @@ class MainActivity : Activity() {
             setContentView(root)
         }
 
-        // Start watchdog AFTER UI is ready, with delay for slow TVs
-        handler.postDelayed({
-            WatchdogService.start(this)
-        }, 3000)
-
         // Battery optimization - silent, no popup
         silentBatteryExemption()
     }
@@ -309,8 +304,6 @@ class MainActivity : Activity() {
     }
 
     private fun exitPermanently() {
-        // Stop watchdog and mark as exited - won't relaunch automatically
-        stopService(Intent(this, WatchdogService::class.java))
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
             .edit()
             .putBoolean("exit_requested", true)
