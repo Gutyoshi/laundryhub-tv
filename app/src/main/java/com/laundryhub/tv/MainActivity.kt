@@ -280,7 +280,8 @@ class MainActivity : Activity() {
 
         val options = arrayOf(
             "Iniciar com a TV: $launcherStatus  (tocar para alternar)",
-            "Sair do app",
+            "Sair e pausar watchdog por 5 minutos",
+            "Sair do app (watchdog volta em 30s)",
             "Cancelar"
         )
 
@@ -289,12 +290,22 @@ class MainActivity : Activity() {
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> toggleLauncherMode(isLauncherEnabled)
-                    1 -> finishAffinity()
-                    2 -> { /* cancel */ }
+                    1 -> pauseWatchdogAndExit(5)
+                    2 -> finishAffinity()
+                    3 -> { /* cancel */ }
                 }
             }
             .setCancelable(true)
             .show()
+    }
+
+    private fun pauseWatchdogAndExit(minutes: Int) {
+        val pausedUntil = System.currentTimeMillis() + (minutes * 60_000L)
+        getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+            .edit()
+            .putLong("paused_until", pausedUntil)
+            .apply()
+        finishAffinity()
     }
 
     private fun isLauncherModeEnabled(): Boolean {

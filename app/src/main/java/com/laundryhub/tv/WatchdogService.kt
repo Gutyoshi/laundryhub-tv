@@ -22,7 +22,7 @@ class WatchdogService : Service() {
     private var isRunning = false
 
     companion object {
-        private const val CHECK_INTERVAL = 10_000L
+        private const val CHECK_INTERVAL = 30_000L
         private const val NOTIFICATION_ID = 9999
         private const val CHANNEL_ID = "laundryhub_watchdog"
 
@@ -82,6 +82,14 @@ class WatchdogService : Service() {
                         Log.d("Watchdog", "Exit requested, stopping")
                         isRunning = false
                         stopSelf()
+                        return
+                    }
+
+                    // Check if watchdog is paused
+                    val pausedUntil = prefs.getLong("paused_until", 0L)
+                    if (System.currentTimeMillis() < pausedUntil) {
+                        Log.d("Watchdog", "Paused, skipping check")
+                        handler.postDelayed(this, CHECK_INTERVAL)
                         return
                     }
 
