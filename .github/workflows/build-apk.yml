@@ -25,15 +25,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate signing keystore
+      - name: Verify keystore exists
         run: |
-          keytool -genkeypair \
-            -alias laundryhub \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -keystore keystore.jks \
-            -storepass laundryhub2026 \
-            -keypass laundryhub2026 \
-            -dname "CN=LaundryHub, OU=Dev, O=LaundryHub, L=Itajai, ST=SC, C=BR"
+          if [ ! -f keystore.jks ]; then
+            echo "ERROR: keystore.jks missing - persistent signing requires committed keystore"
+            exit 1
+          fi
+          echo "Keystore present - persistent signature will be used"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

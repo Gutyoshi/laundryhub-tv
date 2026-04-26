@@ -84,19 +84,23 @@ class MainActivity : Activity() {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
+                visibility = View.GONE
             }
             setupWebView()
             root.addView(webView)
             root.addView(offlineView)
             setContentView(root)
 
-            if (isOnline()) {
-                webView?.loadUrl(displayUrl)
-            } else {
-                showOffline()
-            }
-
+            // Always show offline view first; switch to WebView only after URL loads
+            showOffline()
             registerNetworkCallback()
+
+            // Try load if validated; otherwise NetworkCallback or retry will trigger
+            if (isInternetValidated()) {
+                tryLoadUrl()
+            } else {
+                scheduleRetry(3_000L)
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "WebView init failed", e)
             offlineView.text = "Erro: WebView não disponível.\nAtualize o Android System WebView."
@@ -188,14 +192,19 @@ class MainActivity : Activity() {
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
+                    Log.w("MainActivity", "Main frame error: ${error?.errorCode} ${error?.description}")
+                    // Hide WebView so Chromium error page never shows
+                    view?.loadUrl("about:blank")
                     showOffline()
-                    scheduleRetry()
+                    scheduleRetry(3_000L)
                 }
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                showOnline()
-                cancelRetry()
+                if (url != null && url != "about:blank" && url.startsWith("http")) {
+                    showOnline()
+                    cancelRetry()
+                }
             }
 
             override fun shouldOverrideUrlLoading(
@@ -426,14 +435,24 @@ class MainActivity : Activity() {
     // Connectivity
     // ========================================
 
-    private fun isOnline(): Boolean {
+    private fun isInternetValidated(): Boolean {
         return try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val network = cm.activeNetwork ?: return false
             val caps = cm.getNetworkCapabilities(network) ?: return false
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         } catch (e: Exception) {
             false
+        }
+    }
+
+    private fun tryLoadUrl() {
+        try {
+            webView?.loadUrl(displayUrl)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "loadUrl failed", e)
+            scheduleRetry(5_000L)
         }
     }
 
@@ -445,13 +464,22 @@ class MainActivity : Activity() {
                 .build()
 
             cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    handler.post { webView?.loadUrl(displayUrl) }
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    caps: NetworkCapabilities
+                ) {
+                    val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (validated) {
+                        handler.post {
+                            cancelRetry()
+                            tryLoadUrl()
+                        }
+                    }
                 }
                 override fun onLost(network: Network) {
                     handler.post {
                         showOffline()
-                        scheduleRetry()
+                        scheduleRetry(3_000L)
                     }
                 }
             })
@@ -462,22 +490,26 @@ class MainActivity : Activity() {
 
     private fun showOffline() {
         offlineView.visibility = View.VISIBLE
+        webView?.visibility = View.GONE
     }
 
     private fun showOnline() {
         offlineView.visibility = View.GONE
+        webView?.visibility = View.VISIBLE
     }
 
-    private fun scheduleRetry() {
+    private fun scheduleRetry(delayMs: Long = 5_000L) {
         cancelRetry()
         retryRunnable = Runnable {
-            if (isOnline()) {
-                webView?.loadUrl(displayUrl)
+            if (isInternetValidated()) {
+                tryLoadUrl()
             } else {
-                scheduleRetry()
+                // Backoff: cap at 30s
+                val nextDelay = minOf(delayMs * 2, 30_000L)
+                scheduleRetry(nextDelay)
             }
         }
-        handler.postDelayed(retryRunnable!!, 10_000)
+        handler.postDelayed(retryRunnable!!, delayMs)
     }
 
     private fun cancelRetry() {
@@ -496,6 +528,11 @@ class MainActivity : Activity() {
         hideSystemUI()
         getSharedPreferences("kiosk", Context.MODE_PRIVATE)
             .edit().putBoolean("exit_requested", false).apply()
+
+        // If offline view is showing, retry now (handles wake from sleep)
+        if (offlineView.visibility == View.VISIBLE && isInternetValidated()) {
+            tryLoadUrl()
+        }
     }
 
     override fun onPause() {
