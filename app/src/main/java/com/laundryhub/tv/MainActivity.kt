@@ -363,16 +363,57 @@ private fun toggleLauncherMode(currentlyEnabled: Boolean) {
       "Isso impede que saiam do display acidentalmente."
       )
       .setPositiveButton("Abrir configurações") { _, _ ->
-        try {
-          startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } catch (e: Exception) {
-          Log.e("MainActivity", "Accessibility settings not available", e)
-        }
+        openAccessibilitySettings()
       }
       .setNegativeButton("Depois", null)
       .show()
     }
   }
+
+    /**
+     * Try multiple intent paths to open accessibility settings.
+     * Some TV firmwares (Mi Stick, HQ AOSP) don't expose ACTION_ACCESSIBILITY_SETTINGS
+     * directly, so fall back to generic settings or app details.
+     */
+    private fun openAccessibilitySettings() {
+        val intents = listOf(
+            Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS),
+            Intent("com.android.settings.ACCESSIBILITY_SETTINGS"),
+            Intent(android.provider.Settings.ACTION_SETTINGS),
+            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = android.net.Uri.fromParts("package", packageName, null)
+            }
+        )
+
+        for (intent in intents) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                if (intent.resolveActivity(packageManager) != null) {
+                    startActivity(intent)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Intent failed: ${intent.action}", e)
+            }
+        }
+
+        // No settings activity worked - show manual instructions
+        AlertDialog.Builder(this)
+            .setTitle("Configuração manual necessária")
+            .setMessage(
+                "Esta TV não permite abrir as configurações automaticamente.\n\n" +
+                "Faça manualmente:\n\n" +
+                "1. Saia do app (apertar HOME no controle)\n" +
+                "2. Vá em Configurações da TV\n" +
+                "3. Procure 'Acessibilidade' (Accessibility)\n" +
+                "4. Encontre 'LaundryHub Kiosk' na lista\n" +
+                "5. Ative a chave\n" +
+                "6. Confirme 'Permitir'\n" +
+                "7. Volte para o app"
+            )
+            .setPositiveButton("Entendi", null)
+            .show()
+    }
 
     // ========================================
     // Connectivity
