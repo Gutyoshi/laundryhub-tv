@@ -337,38 +337,59 @@ private fun toggleLauncherMode(currentlyEnabled: Boolean) {
     val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
 
     if (currentlyEnabled) {
-      // DISABLE: just flip flag
-      prefs.edit().putBoolean("launcher_enabled", false).apply()
+        prefs.edit().putBoolean("launcher_enabled", false).apply()
+        try {
+            packageManager.clearPackagePreferredActivities(packageName)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Clear preferred activities failed", e)
+        }
 
-      AlertDialog.Builder(this)
-      .setTitle("Iniciar automático DESATIVADO")
-      .setMessage(
-      "O app não vai mais abrir quando ligar a TV.\n\n" +
-      "A TV vai voltar ao normal — só o launcher original aparece."
-      )
-      .setPositiveButton("OK", null)
-      .show()
+        AlertDialog.Builder(this)
+            .setTitle("Modo Kiosk DESATIVADO")
+            .setMessage(
+                "O app não vai mais abrir quando ligar a TV.\n\n" +
+                "A TV vai voltar ao launcher original."
+            )
+            .setPositiveButton("OK", null)
+            .show()
     } else {
-      // ENABLE: set flag and open accessibility settings for user to enable
-      prefs.edit().putBoolean("launcher_enabled", true).apply()
+        prefs.edit().putBoolean("launcher_enabled", true).apply()
 
-      AlertDialog.Builder(this)
-      .setTitle("Ativar Modo Kiosk")
-      .setMessage(
-      "Para o app abrir automaticamente quando a TV ligar:\n\n" +
-      "1. Encontre 'LaundryHub Kiosk' na lista\n" +
-      "2. Ative a chave\n" +
-      "3. Confirme 'Permitir'\n" +
-      "4. Volte para o app\n\n" +
-      "Isso impede que saiam do display acidentalmente."
-      )
-      .setPositiveButton("Abrir configurações") { _, _ ->
-        openAccessibilitySettings()
-      }
-      .setNegativeButton("Depois", null)
-      .show()
+        AlertDialog.Builder(this)
+            .setTitle("Ativar Modo Kiosk")
+            .setMessage(
+                "Pronto! Agora basta:\n\n" +
+                "1. Tocar em 'Selecionar launcher'\n" +
+                "2. Escolher 'LaundryHub'\n" +
+                "3. Marcar 'Sempre' (Always)\n\n" +
+                "A TV vai abrir o LaundryHub direto a cada vez que ligar."
+            )
+            .setPositiveButton("Selecionar launcher") { _, _ ->
+                triggerHomeChooser()
+            }
+            .setNegativeButton("Depois", null)
+            .show()
     }
-  }
+}
+
+    /**
+     * Forces the system HOME chooser dialog to appear so the user
+     * can pick LaundryHub as default launcher (and mark Always).
+     * This is the same flow Fully Kiosk uses for "Replace launcher".
+     */
+    private fun triggerHomeChooser() {
+        try {
+            val home = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(home)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "HOME chooser failed", e)
+            // Fallback to accessibility path
+            openAccessibilitySettings()
+        }
+    }
 
     /**
      * Try multiple intent paths to open accessibility settings.

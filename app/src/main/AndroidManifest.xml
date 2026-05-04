@@ -41,7 +41,23 @@
             </intent-filter>
         </activity>
 
-        <!-- Accessibility Service - forces app on top when TV launcher opens -->
+        <!-- HOME Launcher Alias - enabled/disabled at runtime via toggle.
+             When enabled, app becomes candidate to handle HOME intent.
+             User picks app + "Always" once via HOME button on remote. -->
+        <activity-alias
+            android:name=".LauncherAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Accessibility Service - secondary path for TVs that don't honor
+             HOME launcher selection (some AOSP firmwares ignore default). -->
         <service
             android:name=".KioskAccessibilityService"
             android:exported="true"
