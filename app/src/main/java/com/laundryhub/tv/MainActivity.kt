@@ -109,58 +109,13 @@ class MainActivity : Activity() {
             setContentView(root)
         }
 
-        // Battery optimization - silent, no popup
-        silentBatteryExemption()
+    // Battery optimization - silent, no popup
+    silentBatteryExemption()
+}
 
-        // Self-heal: if launcher mode is enabled but accessibility isn't, force enable it
-        ensureAccessibilityEnabled()
-    }
-
-    private fun silentBatteryExemption() {
-        // No popup - TV doesn't have battery anyway
-    }
-
-    /**
-     * Auto-heals the accessibility service activation.
-     * Requires WRITE_SECURE_SETTINGS permission granted via ADB:
-     * adb shell pm grant com.laundryhub.tv android.permission.WRITE_SECURE_SETTINGS
-     */
-    private fun ensureAccessibilityEnabled() {
-        try {
-            val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("launcher_enabled", false)) return
-
-            val serviceName = "$packageName/.KioskAccessibilityService"
-            val fullServiceName = "$packageName/com.laundryhub.tv.KioskAccessibilityService"
-            val current = android.provider.Settings.Secure.getString(
-                contentResolver,
-                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: ""
-
-            if (current.contains(serviceName) || current.contains(fullServiceName)) {
-                Log.d("MainActivity", "Accessibility already enabled")
-                return
-            }
-
-            // Not enabled - try to enable via WRITE_SECURE_SETTINGS
-            val newValue = if (current.isEmpty()) fullServiceName else "$current:$fullServiceName"
-            android.provider.Settings.Secure.putString(
-                contentResolver,
-                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-                newValue
-            )
-            android.provider.Settings.Secure.putInt(
-                contentResolver,
-                android.provider.Settings.Secure.ACCESSIBILITY_ENABLED,
-                1
-            )
-            Log.d("MainActivity", "Accessibility service auto-enabled")
-        } catch (e: SecurityException) {
-            Log.w("MainActivity", "WRITE_SECURE_SETTINGS not granted - auto-enable disabled")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Accessibility auto-enable failed", e)
-        }
-    }
+private fun silentBatteryExemption() {
+    // No popup - TV doesn't have battery anyway
+  }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
@@ -378,58 +333,46 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun toggleLauncherMode(currentlyEnabled: Boolean) {
-        val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+private fun toggleLauncherMode(currentlyEnabled: Boolean) {
+    val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
 
-        if (currentlyEnabled) {
-            // DISABLE: just flip flag, accessibility service stops forcing
-            prefs.edit().putBoolean("launcher_enabled", false).apply()
+    if (currentlyEnabled) {
+      // DISABLE: just flip flag
+      prefs.edit().putBoolean("launcher_enabled", false).apply()
 
-            AlertDialog.Builder(this)
-                .setTitle("Iniciar automático DESATIVADO")
-                .setMessage(
-                    "O app não vai mais abrir quando ligar a TV.\n\n" +
-                    "A TV vai voltar ao normal — só o launcher original aparece."
-                )
-                .setPositiveButton("OK", null)
-                .show()
-        } else {
-            // ENABLE: set flag + check if accessibility service is active
-            prefs.edit().putBoolean("launcher_enabled", true).apply()
+      AlertDialog.Builder(this)
+      .setTitle("Iniciar automático DESATIVADO")
+      .setMessage(
+      "O app não vai mais abrir quando ligar a TV.\n\n" +
+      "A TV vai voltar ao normal — só o launcher original aparece."
+      )
+      .setPositiveButton("OK", null)
+      .show()
+    } else {
+      // ENABLE: set flag and open accessibility settings for user to enable
+      prefs.edit().putBoolean("launcher_enabled", true).apply()
 
-            if (isAccessibilityServiceEnabled()) {
-                // Already configured
-                AlertDialog.Builder(this)
-                    .setTitle("Iniciar automático ATIVADO")
-                    .setMessage(
-                        "Pronto! O app vai abrir automaticamente quando ligar a TV."
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
-            } else {
-                // Needs to enable accessibility service
-                AlertDialog.Builder(this)
-                    .setTitle("Configuração necessária")
-                    .setMessage(
-                        "Para o app abrir automaticamente quando a TV ligar, " +
-                        "habilite o serviço de acessibilidade:\n\n" +
-                        "1. Toque em 'Abrir configurações'\n" +
-                        "2. Encontre 'LaundryHub Kiosk' na lista\n" +
-                        "3. Ative o serviço\n" +
-                        "4. Volte ao app"
-                    )
-                    .setPositiveButton("Abrir configurações") { _, _ ->
-                        try {
-                            startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "Accessibility settings not available", e)
-                        }
-                    }
-                    .setNegativeButton("Depois", null)
-                    .show()
-            }
+      AlertDialog.Builder(this)
+      .setTitle("Ativar Modo Kiosk")
+      .setMessage(
+      "Para o app abrir automaticamente quando a TV ligar:\n\n" +
+      "1. Encontre 'LaundryHub Kiosk' na lista\n" +
+      "2. Ative a chave\n" +
+      "3. Confirme 'Permitir'\n" +
+      "4. Volte para o app\n\n" +
+      "Isso impede que saiam do display acidentalmente."
+      )
+      .setPositiveButton("Abrir configurações") { _, _ ->
+        try {
+          startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } catch (e: Exception) {
+          Log.e("MainActivity", "Accessibility settings not available", e)
         }
+      }
+      .setNegativeButton("Depois", null)
+      .show()
     }
+  }
 
     // ========================================
     // Connectivity
@@ -521,19 +464,26 @@ class MainActivity : Activity() {
     // Lifecycle
     // ========================================
 
-    override fun onResume() {
-        super.onResume()
-        isInForeground = true
-        webView?.onResume()
-        hideSystemUI()
-        getSharedPreferences("kiosk", Context.MODE_PRIVATE)
-            .edit().putBoolean("exit_requested", false).apply()
+override fun onResume() {
+    super.onResume()
+    isInForeground = true
+    webView?.onResume()
+    hideSystemUI()
+    getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+    .edit().putBoolean("exit_requested", false).apply()
 
-        // If offline view is showing, retry now (handles wake from sleep)
-        if (offlineView.visibility == View.VISIBLE && isInternetValidated()) {
-            tryLoadUrl()
-        }
+    // If offline view is showing, retry now (handles wake from sleep)
+    if (offlineView.visibility == View.VISIBLE && isInternetValidated()) {
+      tryLoadUrl()
     }
+
+    // Check if user enabled accessibility service after being prompted
+    val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
+    if (prefs.getBoolean("launcher_enabled", false) && isAccessibilityServiceEnabled()) {
+      // User successfully enabled it - show confirmation
+      // (optional - can be removed to avoid annoying popup)
+    }
+  }
 
     override fun onPause() {
         isInForeground = false
