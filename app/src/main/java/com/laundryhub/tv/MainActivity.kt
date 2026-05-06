@@ -379,14 +379,13 @@ private fun toggleLauncherMode(currentlyEnabled: Boolean) {
             .setTitle("Ativar Modo Kiosk")
             .setMessage(
                 "Para o app abrir automaticamente quando a TV ligar:\n\n" +
-                "1. Toque em 'Abrir acessibilidade'\n" +
-                "2. Encontre 'LaundryHub Kiosk' na lista\n" +
-                "3. Ative a chave\n" +
-                "4. Confirme 'Permitir'\n" +
-                "5. Volte para o app"
+                "1. Toque em 'Selecionar launcher'\n" +
+                "2. Escolha 'LaundryHub' na lista\n" +
+                "3. Marque 'Sempre' (Always)\n\n" +
+                "A TV vai abrir o LaundryHub direto a cada vez que ligar."
             )
-            .setPositiveButton("Abrir acessibilidade") { _, _ ->
-                openAccessibilitySettings()
+            .setPositiveButton("Selecionar launcher") { _, _ ->
+                triggerHomeChooser()
             }
             .setNegativeButton("Depois", null)
             .show()
