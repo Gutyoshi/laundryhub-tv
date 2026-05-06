@@ -286,14 +286,16 @@ private fun silentBatteryExemption() {
         val prefs = getSharedPreferences("kiosk", Context.MODE_PRIVATE)
         val launcherOn = prefs.getBoolean("launcher_enabled", false)
         val a11yActive = isAccessibilityServiceEnabled()
+        val isDefaultHome = isDefaultLauncher()
+        val isFunctional = launcherOn && (isDefaultHome || a11yActive)
         val status = when {
-            launcherOn && a11yActive -> "ATIVADO"
-            launcherOn && !a11yActive -> "ATIVADO (requer configuração)"
+            isFunctional -> "ATIVO"
+            launcherOn -> "PENDENTE — falta configurar launcher"
             else -> "DESATIVADO"
         }
 
         val options = arrayOf(
-            "Iniciar com a TV: $status  (tocar para alternar)",
+            "Modo Kiosk: $status  (tocar para alternar)",
             "Sair do app (definitivo)",
             "Cancelar"
         )
@@ -328,6 +330,24 @@ private fun silentBatteryExemption() {
             ) ?: return false
             enabledServices.contains("${packageName}/.KioskAccessibilityService") ||
                 enabledServices.contains("$packageName/com.laundryhub.tv.KioskAccessibilityService")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Returns true if our app is the default HOME launcher.
+     * On TVs that respect HOME preferences, this is the most reliable
+     * way to auto-start on boot.
+     */
+    private fun isDefaultLauncher(): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolveInfo = packageManager.resolveActivity(
+                intent,
+                android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+            )
+            resolveInfo?.activityInfo?.packageName == packageName
         } catch (e: Exception) {
             false
         }
@@ -373,22 +393,47 @@ private fun toggleLauncherMode(currentlyEnabled: Boolean) {
 }
 
     /**
-     * Forces the system HOME chooser dialog to appear so the user
-     * can pick LaundryHub as default launcher (and mark Always).
-     * This is the same flow Fully Kiosk uses for "Replace launcher".
+     * Tries multiple paths to let the user select LaundryHub as default launcher.
+     * Order:
+     *   1. Settings.ACTION_HOME_SETTINGS (most direct - opens "Default home app" picker)
+     *   2. ACTION_MAIN + CATEGORY_HOME (system HOME chooser)
+     *   3. Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS (default apps menu)
+     *   4. Generic Settings + manual instructions
      */
     private fun triggerHomeChooser() {
-        try {
-            val home = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val candidates = listOf(
+            Intent("android.settings.HOME_SETTINGS"),
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
+            Intent("android.settings.MANAGE_DEFAULT_APPS_SETTINGS"),
+            Intent(android.provider.Settings.ACTION_SETTINGS)
+        )
+
+        for (intent in candidates) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                if (intent.resolveActivity(packageManager) != null) {
+                    startActivity(intent)
+                    Log.d("MainActivity", "Opened: ${intent.action}")
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Intent failed: ${intent.action}", e)
             }
-            startActivity(home)
-        } catch (e: Exception) {
-            Log.e("MainActivity", "HOME chooser failed", e)
-            // Fallback to accessibility path
-            openAccessibilitySettings()
         }
+
+        // Nothing opened - show manual instructions
+        AlertDialog.Builder(this)
+            .setTitle("Configuração manual necessária")
+            .setMessage(
+                "Esta TV não permite abrir as configurações automaticamente.\n\n" +
+                "Pressione o botão HOME no controle da TV.\n" +
+                "Se aparecer uma pergunta 'Qual app usar?', escolha LaundryHub e marque 'Sempre'.\n\n" +
+                "Se nada aparecer, vá em:\n" +
+                "Configurações > Apps > Apps padrão > Tela inicial\n" +
+                "e escolha LaundryHub."
+            )
+            .setPositiveButton("Entendi", null)
+            .show()
     }
 
     /**
